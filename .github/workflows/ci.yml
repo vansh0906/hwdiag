@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DHWDIAG_WERROR=ON
+      - name: Build
+        run: cmake --build build -j 4
+      - name: Unit and CLI tests
+        run: ctest --test-dir build --output-on-failure
+      - name: Station run (200 simulated units, yield gate 80%)
+        run: scripts/station.sh -n 200 -j 4 -y 80
+      - uses: actions/upload-artifact@v4
+        with:
+          name: station-reports-${{ matrix.os }}
+          path: reports/
+
+  sanitizers:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address, undefined, thread]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DHWDIAG_WERROR=ON -DHWDIAG_SANITIZE=${{ matrix.sanitizer }}
+      - name: Build
+        run: cmake --build build -j 4
+      - name: Test
+        env:
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build --output-on-failure
